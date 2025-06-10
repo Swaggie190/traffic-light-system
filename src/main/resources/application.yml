@@ -1,0 +1,55 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+
+spring:
+  application:
+    name: traffic-light-system
+  
+  datasource:
+    url: jdbc:h2:mem:trafficdb
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: 
+    
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+      
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+    properties:
+      hibernate:
+        '[format_sql]': true
+  
+  # ADD THIS SECTION - Best solution for your case
+  sql:
+    init:
+      mode: never  # Disables data.sql execution
+
+# Traffic System Configuration
+traffic:
+  simulation:
+    time-step: 1000  # milliseconds
+    default-scenario: BALANCED
+  parameters:
+    min-green-time: 15
+    max-green-time: 60
+    yellow-time: 3
+    red-clearance-time: 2
+    pedestrian-weight: 0.3
+    switching-threshold: 1.5
+    vehicle-performance-weight: 0.7
+    pedestrian-performance-weight: 0.3
+
+logging:
+  level:
+    '[com.traffic]': DEBUG
+    '[org.springframework.web]': INFO
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
