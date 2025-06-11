@@ -8,7 +8,7 @@ spring:
     name: traffic-light-system
   
   datasource:
-    url: jdbc:h2:mem:trafficdb
+    url: jdbc:h2:mem:trafficdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
     driver-class-name: org.h2.Driver
     username: sa
     password: 
@@ -22,15 +22,22 @@ spring:
     database-platform: org.hibernate.dialect.H2Dialect
     hibernate:
       ddl-auto: create-drop
+      naming:
+        physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
     show-sql: true
     properties:
       hibernate:
         '[format_sql]': true
+        dialect: org.hibernate.dialect.H2Dialect
+    defer-datasource-initialization: true
   
-  # ADD THIS SECTION - Best solution for your case
   sql:
     init:
-      mode: never  # Disables data.sql execution
+      mode: always
+      platform: h2
+      schema-locations: classpath:schema.sql
+      data-locations: classpath:data.sql
+      continue-on-error: true
 
 # Traffic System Configuration
 traffic:
@@ -51,5 +58,8 @@ logging:
   level:
     '[com.traffic]': DEBUG
     '[org.springframework.web]': INFO
+    '[org.springframework.orm.jpa]': DEBUG
+    '[org.hibernate.SQL]': DEBUG
+    '[org.hibernate.type.descriptor.sql.BasicBinder]': TRACE
   pattern:
     console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
