@@ -1,4 +1,3 @@
-// WebSocket Configuration
 package com.traffic.config;
 
 import org.springframework.context.annotation.Configuration;
@@ -20,7 +19,14 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws")
-                .setAllowedOriginPatterns("*")
+                .setAllowedOrigins(
+                    "http://localhost:48752", // Your current Vite frontend port
+                    "http://127.0.0.1:48752",
+                    "http://localhost:4000",  // Your intended Vite frontend
+                    "http://127.0.0.1:4000",
+                    "http://localhost:3000",  // Backup for other React dev servers
+                    "http://localhost:5173"   // Backup for other Vite dev servers
+                )
                 .withSockJS();
     }
 }

@@ -14,7 +14,7 @@ import jakarta.validation.constraints.NotBlank;
 @RequestMapping("/sensors")
 @RequiredArgsConstructor
 @Slf4j
-@CrossOrigin(origins = "*")
+// @CrossOrigin(origins = "*")
 public class SensorController {
     
     private final TrafficStateRepository stateRepository;

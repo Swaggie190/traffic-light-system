@@ -15,7 +15,6 @@ import java.util.stream.Collectors;
 @RequestMapping("/dashboard")
 @RequiredArgsConstructor
 @Slf4j
-@CrossOrigin(origins = "*")
 public class DashboardController {
     
     private final SimulationConfigRepository configRepository;

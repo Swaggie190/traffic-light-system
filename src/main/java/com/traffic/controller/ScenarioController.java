@@ -13,7 +13,7 @@ import com.traffic.dto.ApiResponse;
 @RequestMapping("/scenarios")
 @RequiredArgsConstructor
 @Slf4j
-@CrossOrigin(origins = "*")
+// @CrossOrigin(origins = "*")
 public class ScenarioController {
     
     @GetMapping

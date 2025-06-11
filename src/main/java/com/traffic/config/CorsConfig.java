@@ -15,7 +15,14 @@ public class CorsConfig implements WebMvcConfigurer {
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/**")
-                .allowedOriginPatterns("*")  // Changed from allowedOrigins("*")
+                .allowedOrigins(
+                    "http://localhost:48752", // Your current Vite frontend port
+                    "http://127.0.0.1:48752",
+                    "http://localhost:4000",  // Your intended Vite frontend
+                    "http://127.0.0.1:4000",
+                    "http://localhost:3000",  // Backup for other React dev servers
+                    "http://localhost:5173"   // Backup for other Vite dev servers
+                )
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH")
                 .allowedHeaders("*")
                 .allowCredentials(true)
@@ -25,7 +32,14 @@ public class CorsConfig implements WebMvcConfigurer {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOriginPatterns(Arrays.asList("*"));  // Changed from setAllowedOrigins
+        configuration.setAllowedOrigins(Arrays.asList(
+            "http://localhost:48752", // Your current Vite frontend port
+            "http://127.0.0.1:48752",
+            "http://localhost:4000",  // Your intended Vite frontend
+            "http://127.0.0.1:4000",
+            "http://localhost:3000",  // Backup for other React dev servers
+            "http://localhost:5173"   // Backup for other Vite dev servers
+        ));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
         configuration.setAllowCredentials(true);
