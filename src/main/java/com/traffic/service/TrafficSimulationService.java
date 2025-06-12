@@ -12,6 +12,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ScheduledFuture;
 import com.traffic.dto.SimulationRequest;
 import com.traffic.dto.SimulationConfigRequest;
 import com.traffic.dto.SimulationStatusResponse;
@@ -30,7 +31,7 @@ public class TrafficSimulationService {
     private final Map<String, SimulationRunner> activeSimulations = new ConcurrentHashMap<>();
     private final ScheduledExecutorService executorService = Executors.newScheduledThreadPool(10);
     
-    // Mathematical model implementation
+    // Fixed mathematical model implementation
     public TrafficState calculateNextState(TrafficState currentState, SimulationConfig config) {
         TrafficState nextState = TrafficState.builder()
                 .simulationId(currentState.getSimulationId())
@@ -40,40 +41,62 @@ public class TrafficSimulationService {
                 .currentGreenTime(currentState.getCurrentGreenTime() + 1)
                 .build();
         
-        // Update vehicle queues based on current phase
+        // Initialize with current values
+        nextState.setVehiclesNorth(currentState.getVehiclesNorth());
+        nextState.setVehiclesSouth(currentState.getVehiclesSouth());
+        nextState.setVehiclesEast(currentState.getVehiclesEast());
+        nextState.setVehiclesWest(currentState.getVehiclesWest());
+        
+        nextState.setPedestriansNorth(currentState.getPedestriansNorth());
+        nextState.setPedestriansSouth(currentState.getPedestriansSouth());
+        nextState.setPedestriansEast(currentState.getPedestriansEast());
+        nextState.setPedestriansWest(currentState.getPedestriansWest());
+        
+        // Apply arrival and service rates based on current phase
         if (currentState.getCurrentPhase() == TrafficPhase.PHASE_1) {
             // N-S green, E-W red
-            nextState.setVehiclesNorth(Math.max(0, 
-                currentState.getVehiclesNorth() + config.getLambdaNorth().intValue() - config.getSigmaNorth().intValue()));
-            nextState.setVehiclesSouth(Math.max(0, 
-                currentState.getVehiclesSouth() + config.getLambdaSouth().intValue() - config.getSigmaSouth().intValue()));
-            nextState.setVehiclesEast(currentState.getVehiclesEast() + config.getLambdaEast().intValue());
-            nextState.setVehiclesWest(currentState.getVehiclesWest() + config.getLambdaWest().intValue());
+            log.debug("PHASE_1: N-S green, E-W red");
             
-            // Pedestrians can cross E-W during N-S green
-            nextState.setPedestriansNorth(currentState.getPedestriansNorth() + config.getMuNorth().intValue());
-            nextState.setPedestriansSouth(currentState.getPedestriansSouth() + config.getMuSouth().intValue());
-            nextState.setPedestriansEast(Math.max(0, currentState.getPedestriansEast() - currentState.getPedestriansEast()));
-            nextState.setPedestriansWest(Math.max(0, currentState.getPedestriansWest() - currentState.getPedestriansWest()));
+            // N-S directions: vehicles can be served (flow through)
+            nextState.setVehiclesNorth(Math.max(0, 
+                nextState.getVehiclesNorth() + generateArrivals(config.getLambdaNorth()) - generateService(config.getSigmaNorth())));
+            nextState.setVehiclesSouth(Math.max(0, 
+                nextState.getVehiclesSouth() + generateArrivals(config.getLambdaSouth()) - generateService(config.getSigmaSouth())));
+            
+            // E-W directions: vehicles accumulate (red light)
+            nextState.setVehiclesEast(nextState.getVehiclesEast() + generateArrivals(config.getLambdaEast()));
+            nextState.setVehiclesWest(nextState.getVehiclesWest() + generateArrivals(config.getLambdaWest()));
+            
+            // Pedestrians: N-S accumulate, E-W can cross
+            nextState.setPedestriansNorth(nextState.getPedestriansNorth() + generateArrivals(config.getMuNorth()));
+            nextState.setPedestriansSouth(nextState.getPedestriansSouth() + generateArrivals(config.getMuSouth()));
+            nextState.setPedestriansEast(Math.max(0, nextState.getPedestriansEast() - nextState.getPedestriansEast())); // All cross
+            nextState.setPedestriansWest(Math.max(0, nextState.getPedestriansWest() - nextState.getPedestriansWest())); // All cross
+            
         } else {
             // E-W green, N-S red
-            nextState.setVehiclesNorth((int)(currentState.getVehiclesNorth() + config.getLambdaNorth()));
-            nextState.setVehiclesSouth((int)(currentState.getVehiclesSouth() + config.getLambdaSouth()));
-            nextState.setVehiclesEast(Math.max(0, 
-                currentState.getVehiclesEast() + config.getLambdaEast().intValue() - config.getSigmaEast().intValue()));
-            nextState.setVehiclesWest(Math.max(0, 
-                currentState.getVehiclesWest() + config.getLambdaWest().intValue() - config.getSigmaWest().intValue()));
+            log.debug("PHASE_2: E-W green, N-S red");
             
-            // Pedestrians can cross N-S during E-W green
-            nextState.setPedestriansNorth(Math.max(0, currentState.getPedestriansNorth() - currentState.getPedestriansNorth()));
-            nextState.setPedestriansSouth(Math.max(0, currentState.getPedestriansSouth() - currentState.getPedestriansSouth()));
-            nextState.setPedestriansEast(currentState.getPedestriansEast() + config.getMuEast().intValue());
-            nextState.setPedestriansWest(currentState.getPedestriansWest() + config.getMuWest().intValue());
+            // N-S directions: vehicles accumulate (red light)
+            nextState.setVehiclesNorth(nextState.getVehiclesNorth() + generateArrivals(config.getLambdaNorth()));
+            nextState.setVehiclesSouth(nextState.getVehiclesSouth() + generateArrivals(config.getLambdaSouth()));
+            
+            // E-W directions: vehicles can be served (flow through)
+            nextState.setVehiclesEast(Math.max(0, 
+                nextState.getVehiclesEast() + generateArrivals(config.getLambdaEast()) - generateService(config.getSigmaEast())));
+            nextState.setVehiclesWest(Math.max(0, 
+                nextState.getVehiclesWest() + generateArrivals(config.getLambdaWest()) - generateService(config.getSigmaWest())));
+            
+            // Pedestrians: E-W accumulate, N-S can cross
+            nextState.setPedestriansEast(nextState.getPedestriansEast() + generateArrivals(config.getMuEast()));
+            nextState.setPedestriansWest(nextState.getPedestriansWest() + generateArrivals(config.getMuWest()));
+            nextState.setPedestriansNorth(Math.max(0, nextState.getPedestriansNorth() - nextState.getPedestriansNorth())); // All cross
+            nextState.setPedestriansSouth(Math.max(0, nextState.getPedestriansSouth() - nextState.getPedestriansSouth())); // All cross
         }
         
         // Calculate traffic densities
         double phase1Density = nextState.getVehiclesNorth() + nextState.getVehiclesSouth() + 
-                              config.getPedestrianWeight() * (nextState.getPedestriansNorth() + nextState.getPedestriansSouth());
+                              config.getPedestrianWeight() * (nextState.getPedestriansNorth() + nextState.getPedestriansouth());
         double phase2Density = nextState.getVehiclesEast() + nextState.getVehiclesWest() + 
                               config.getPedestrianWeight() * (nextState.getPedestriansEast() + nextState.getPedestriansWest());
         
@@ -81,13 +104,7 @@ public class TrafficSimulationService {
         nextState.setPhase2Density(phase2Density);
         
         // Calculate adaptive green time
-        double currentDensity = (currentState.getCurrentPhase() == TrafficPhase.PHASE_1) ? phase1Density : phase2Density;
-        double waitingDensity = (currentState.getCurrentPhase() == TrafficPhase.PHASE_1) ? phase2Density : phase1Density;
-        
-        int adaptiveGreenTime = config.getMinGreenTime() + 
-            (int)((config.getMaxGreenTime() - config.getMinGreenTime()) * 
-                  (currentDensity / (currentDensity + waitingDensity + 1.0)));
-        
+        int adaptiveGreenTime = calculateAdaptiveGreenTime(nextState, config);
         nextState.setCalculatedGreenTime(adaptiveGreenTime);
         
         // Check for phase switching
@@ -96,23 +113,115 @@ public class TrafficSimulationService {
             nextState.setCurrentPhase(currentState.getCurrentPhase() == TrafficPhase.PHASE_1 ? 
                                     TrafficPhase.PHASE_2 : TrafficPhase.PHASE_1);
             nextState.setCurrentGreenTime(0);
+            
+            // Recalculate green time for new phase
+            adaptiveGreenTime = calculateAdaptiveGreenTime(nextState, config);
+            nextState.setCalculatedGreenTime(adaptiveGreenTime);
+            
+            log.info("Phase switched to {} - N-S density: {}, E-W density: {}, Green time: {}s", 
+                    nextState.getCurrentPhase(), phase1Density, phase2Density, adaptiveGreenTime);
         }
+        
+        log.debug("State updated: timeStep={}, N={}, S={}, E={}, W={}, phase={}, greenTime={}/{}", 
+                nextState.getTimeStep(), nextState.getVehiclesNorth(), nextState.getVehiclesSouth(),
+                nextState.getVehiclesEast(), nextState.getVehiclesWest(), 
+                nextState.getCurrentPhase(), nextState.getCurrentGreenTime(), nextState.getCalculatedGreenTime());
         
         return nextState;
     }
     
+    // Helper method to generate arrivals based on Poisson process
+    private int generateArrivals(Double rate) {
+        if (rate == null || rate <= 0) return 0;
+        
+        // Simple arrival generation: rate represents vehicles/second
+        // For 1-second time steps, we use Poisson distribution approximation
+        double random = Math.random();
+        return (random < rate) ? 1 : 0;
+    }
+    
+    // Helper method to generate service (vehicles processed)
+    private int generateService(Double rate) {
+        if (rate == null || rate <= 0) return 0;
+        
+        // Service rate represents vehicles/second that can be processed
+        double random = Math.random();
+        return (random < rate) ? 1 : 0;
+    }
+    
+    // Fixed adaptive green time calculation
+    private int calculateAdaptiveGreenTime(TrafficState state, SimulationConfig config) {
+        double phase1Density = state.getPhase1Density();
+        double phase2Density = state.getPhase2Density();
+        double currentDensity, waitingDensity;
+        
+        if (state.getCurrentPhase() == TrafficPhase.PHASE_1) {
+            currentDensity = phase1Density;
+            waitingDensity = phase2Density;
+        } else {
+            currentDensity = phase2Density;
+            waitingDensity = phase1Density;
+        }
+        
+        int minGreenTime = config.getMinGreenTime();
+        int maxGreenTime = config.getMaxGreenTime();
+        
+        // If no cars in current direction, use minimum time
+        if (currentDensity <= 0.1) {
+            return minGreenTime;
+        }
+        
+        // If no cars waiting, extend current green time
+        if (waitingDensity <= 0.1) {
+            return maxGreenTime;
+        }
+        
+        // Standard adaptive formula: G(t) = T_min + (T_max - T_min) × (D_current / (D_current + D_waiting + ε))
+        double ratio = currentDensity / (currentDensity + waitingDensity + 1.0);
+        int adaptiveTime = minGreenTime + (int)((maxGreenTime - minGreenTime) * ratio);
+        
+        return Math.max(minGreenTime, Math.min(maxGreenTime, adaptiveTime));
+    }
+    
+    // Fixed phase switching logic
     private boolean shouldSwitchPhase(TrafficState state, SimulationConfig config) {
-        if (state.getCurrentGreenTime() < state.getCalculatedGreenTime()) {
+        double phase1Density = state.getPhase1Density();
+        double phase2Density = state.getPhase2Density();
+        
+        int currentGreenTime = state.getCurrentGreenTime();
+        int minGreenTime = config.getMinGreenTime();
+        int maxGreenTime = config.getMaxGreenTime();
+        double switchingThreshold = config.getSwitchingThreshold();
+        
+        // Ensure minimum green time is respected (safety requirement)
+        if (currentGreenTime < minGreenTime) {
             return false;
         }
         
-        double currentDensity = (state.getCurrentPhase() == TrafficPhase.PHASE_1) ? 
-                               state.getPhase1Density() : state.getPhase2Density();
-        double waitingDensity = (state.getCurrentPhase() == TrafficPhase.PHASE_1) ? 
-                               state.getPhase2Density() : state.getPhase1Density();
+        // Force switch if maximum green time is reached
+        if (currentGreenTime >= maxGreenTime) {
+            log.debug("Switching: Max green time reached ({}s)", currentGreenTime);
+            return true;
+        }
         
-        return waitingDensity > config.getSwitchingThreshold() * currentDensity || 
-               state.getCurrentGreenTime() >= config.getMaxGreenTime();
+        // Adaptive switching based on traffic demand
+        if (state.getCurrentPhase() == TrafficPhase.PHASE_1) {
+            // Currently N-S green, check if E-W needs priority
+            boolean shouldSwitch = phase2Density > switchingThreshold * phase1Density;
+            if (shouldSwitch) {
+                log.debug("Switching P1->P2: E-W density ({}) > {} × N-S density ({})", 
+                        phase2Density, switchingThreshold, phase1Density);
+            }
+            return shouldSwitch;
+        } else {
+            // Currently E-W green, check if N-S needs priority
+            boolean shouldSwitch = phase1Density > switchingThreshold * phase2Density;
+            if (shouldSwitch) {
+                log.debug("Switching P2->P1: N-S density ({}) > {} × E-W density ({})", 
+                        phase1Density, switchingThreshold, phase2Density);
+            }
+            return shouldSwitch;
+        }
     }
     
     @Transactional
@@ -149,29 +258,50 @@ public class TrafficSimulationService {
         
         simulationConfigRepository.save(config);
         
-        // Create initial state
+        // Create initial state with some vehicles to match scenario
+        int initialNorth = 0, initialSouth = 0, initialEast = 0, initialWest = 0;
+        
+        // Adjust initial state based on scenario
+        if ("HEAVY_NS".equals(request.getScenario().toString())) {
+            initialNorth = 3;
+            initialSouth = 4;
+            initialEast = 1;
+            initialWest = 1;
+        } else if ("BALANCED".equals(request.getScenario().toString())) {
+            initialNorth = 2;
+            initialSouth = 2;
+            initialEast = 2;
+            initialWest = 2;
+        } else if ("RUSH_HOUR".equals(request.getScenario().toString())) {
+            initialNorth = 5;
+            initialSouth = 6;
+            initialEast = 4;
+            initialWest = 5;
+        }
+        
         TrafficState initialState = TrafficState.builder()
                 .simulationId(simulationId)
                 .timeStep(0L)
                 .timestamp(LocalDateTime.now())
-                .vehiclesNorth(0)
-                .vehiclesSouth(0)
-                .vehiclesEast(0)
-                .vehiclesWest(0)
-                .pedestriansNorth(0)
-                .pedestriansSouth(0)
+                .vehiclesNorth(initialNorth)
+                .vehiclesSouth(initialSouth)
+                .vehiclesEast(initialEast)
+                .vehiclesWest(initialWest)
+                .pedestriansNorth(1)
+                .pedestriansSouth(1)
                 .pedestriansEast(0)
                 .pedestriansWest(0)
                 .currentPhase(TrafficPhase.PHASE_1)
                 .currentGreenTime(0)
                 .calculatedGreenTime(config.getMinGreenTime())
-                .phase1Density(0.0)
-                .phase2Density(0.0)
+                .phase1Density((double)(initialNorth + initialSouth))
+                .phase2Density((double)(initialEast + initialWest))
                 .build();
         
         trafficStateRepository.save(initialState);
         
-        log.info("Created simulation: {}", simulationId);
+        log.info("Created simulation: {} with scenario: {}, initial vehicles: N={}, S={}, E={}, W={}", 
+                simulationId, request.getScenario(), initialNorth, initialSouth, initialEast, initialWest);
         return simulationId;
     }
     
@@ -284,6 +414,8 @@ public class TrafficSimulationService {
         private volatile String status = "IDLE";
         private volatile long currentTimeStep = 0;
         private volatile String errorMessage;
+        private ScheduledFuture<?> scheduledTask;
+        private TrafficState currentState; // Fixed: maintain state reference
         
         public SimulationRunner(String simulationId, SimulationConfig config, SimulationRequest request) {
             this.simulationId = simulationId;
@@ -297,22 +429,29 @@ public class TrafficSimulationService {
             running = true;
             status = "RUNNING";
             
-            TrafficState currentState = trafficStateRepository.findLatestBySimulationId(simulationId)
+            // Get initial state
+            currentState = trafficStateRepository.findLatestBySimulationId(simulationId)
                     .orElseThrow(() -> new IllegalArgumentException("No initial state found"));
+            
+            currentTimeStep = currentState.getTimeStep();
             
             long totalSteps = request.getDurationSeconds();
             int stepInterval = request.getTimeStepMillis();
             
-            executorService.scheduleAtFixedRate(() -> {
+            // Fixed: proper state management in loop
+            scheduledTask = executorService.scheduleAtFixedRate(() -> {
                 try {
                     if (!running || currentTimeStep >= totalSteps) {
                         stop();
                         return;
                     }
                     
+                    // Calculate next state
                     TrafficState nextState = calculateNextState(currentState, config);
                     trafficStateRepository.save(nextState);
                     
+                    // Update current state reference (CRITICAL FIX)
+                    currentState = nextState;
                     currentTimeStep = nextState.getTimeStep();
                     
                     // Send real-time update via WebSocket
@@ -329,6 +468,10 @@ public class TrafficSimulationService {
         
         public void stop() {
             running = false;
+            if (scheduledTask != null) {
+                scheduledTask.cancel(false);
+            }
+            
             if ("ERROR".equals(status)) {
                 status = "ERROR";
             } else if (currentTimeStep >= request.getDurationSeconds()) {
@@ -341,8 +484,8 @@ public class TrafficSimulationService {
         }
         
         public SimulationStatusResponse getStatus() {
-            double progress = request.getDurationSeconds() > 0 ? 
-                            (double) currentTimeStep / request.getDurationSeconds() * 100.0 : 0.0;
+            double progress = request.getDurationSeconds() > 0 ?
+                (double) currentTimeStep / request.getDurationSeconds() * 100.0 : 0.0;
             
             return SimulationStatusResponse.builder()
                     .simulationId(simulationId)
@@ -350,6 +493,7 @@ public class TrafficSimulationService {
                     .currentTimeStep(currentTimeStep)
                     .totalTimeSteps((long) request.getDurationSeconds())
                     .progress(progress)
+                    .currentState(currentState != null ? convertToResponse(currentState) : null)
                     .message(errorMessage)
                     .lastUpdate(LocalDateTime.now())
                     .build();
