@@ -96,7 +96,7 @@ public class TrafficSimulationService {
         
         // Calculate traffic densities
         double phase1Density = nextState.getVehiclesNorth() + nextState.getVehiclesSouth() + 
-                              config.getPedestrianWeight() * (nextState.getPedestriansNorth() + nextState.getPedestriansouth());
+                              config.getPedestrianWeight() * (nextState.getPedestriansNorth() + nextState.getPedestriansSouth());
         double phase2Density = nextState.getVehiclesEast() + nextState.getVehiclesWest() + 
                               config.getPedestrianWeight() * (nextState.getPedestriansEast() + nextState.getPedestriansWest());
         
