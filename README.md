@@ -38,7 +38,7 @@ traffic-light-system/
 - Java 17+
 - Spring Boot 3.x
 - Maven
-- PostgreSQL/MySQL
+- PostgreSQL or MySQL
 
 ## Contributing
 
